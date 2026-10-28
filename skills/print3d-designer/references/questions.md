@@ -34,6 +34,20 @@ in plain chat.
 
 Also cover, when relevant:
 
+- **The face**, whenever the figure has one. Run `kawaii_face` for the
+  customer's size and nozzle *before* the round, then offer only what it
+  passes:
+
+  | Option | When to offer it | Cost |
+  |---|---|---|
+  | Inlaid dark face (Recommended when colours are possible) | the layout passes; the printer changes filaments | about 2 changes per layer over the face's height (~3 mm), e.g. 30–40 changes at 0.16 mm layers |
+  | Engraved face | the layout passes with room to spare; a single-colour print | none; it reads only by shadow, softer than the picture |
+  | 0.2 nozzle | the layout fails on a 0.4 but passes on a 0.2 | slower print; ask whether they have one |
+  | Bigger figure | the layout passes at a size the customer accepts | more time and grams |
+  | Fewer features | e.g. no nose, eyes as dots | looks simpler than the picture |
+
+  Never recommend engraving a face that fails the check. The first service
+  order did, and its 25 mm snowman's nose and smile printed as one blob.
 - **Colours vs what is loaded.** Example: "teal is not in the ACE (white,
   magenta, yellow, black): load it in slot 2?"
 - **Fit or assembly** for parts: glue, slide-on ring, peg.

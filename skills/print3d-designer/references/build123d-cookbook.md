@@ -9,6 +9,7 @@ helper exists and lists the traps.
   - `profile_solid`, `ball`, `ellipsoid`, `rounded_box`, `lobe`;
   - `tilted`, `rim_skirt`, `capsule`, `support_cone`;
   - `strokes`, `inlay`, `engrave`;
+  - faces: `kawaii_face`, `check_face`, `face_preview`;
   - `raised_ribs`, `band_grooves`, `v_grooves`;
   - `scaled`, `export_parts`.
 - `python shapes.py` builds them all.

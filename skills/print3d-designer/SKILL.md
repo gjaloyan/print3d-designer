@@ -183,7 +183,8 @@ actually look at them.
 | bow loops, petals, ears, leaves, wings | `lobe(sections, z0, cap)` | sections across the lobe; centre it on the surface it lies on |
 | tilted hat cuff, brim, rim | `tilted(pos, deg)` + `rim_skirt(...)` | sharp rim bottom edge; the skirt ends inside the part below |
 | arms, legs, hanging balls | `capsule`, `support_cone` | cone 55–60° down into the body |
-| eyes, mouth, lines | `strokes`, `tapered_stroke`, then `inlay` (colour) or `engrave` (45°, no ceilings) | strokes ≥ 2 line widths in final mm |
+| a face (eyes, nose, smile) | `kawaii_face(nozzle, ...)` → `layout.report()`, `face_preview(layout, png)`, then `inlay(layout.sketch, skin)` or `engrave(...)` | numbers in FINAL mm from the picture; `layout.problems` must be empty |
+| other lines (arms, folds) | `strokes`, `tapered_stroke`, then `inlay` (colour) or `engrave` (45°, no ceilings) | strokes ≥ 2 line widths in final mm |
 | knit, ribs | `raised_ribs`, `band_grooves`, `v_grooves` | ribs ≥ 0.5 mm on a 0.2 nozzle |
 | one colour above a height | `& above(z)` / `- above(z)` | split at the boundary's highest point |
 
@@ -198,6 +199,8 @@ actually look at them.
 | Detail on a shallow dome | raised ribs, not cut grooves |
 | Slots, pockets | 45° peaked or rising roofs; no flat ceilings |
 | Stroke width | ≥ 2 line widths: 0.5 mm (0.2 nozzle) / 0.9 mm (0.4) |
+| Face features | each stroke or dot ≥ 2 line widths, ≥ 2 line widths of body between any two, strokes ≥ 2.5 x as long as wide; `check_face` / `kawaii_face` measure it |
+| Face technique | inlaid dark colour reads best; engraving reads only by shadow, so engrave only a face that passes the check with room to spare |
 | Inlay / engrave depth | 0.6 / 0.5 mm |
 | Shell of one colour over another | ≥ 1 mm; light over dark needs a ≥ 2.5 mm light core |
 | Fits per side | press 0.05–0.10, slide 0.15–0.20, loose 0.30 mm |
@@ -242,6 +245,11 @@ actually look at them.
    - AI product shots are taken from slightly above: a flat top shows as a
      band, so take its middle as the top's height.
    - Paste the rows at the design scale, thinned to every 2nd–3rd row.
+   - **Lay out the face before modelling.**
+     - Measure the eye spacing, eye size, nose and smile in the front view and convert them to FINAL mm.
+     - Run `kawaii_face(nozzle, ...)` (or `check_face` for a face of your own).
+     - Look at `face_preview`. It shows the face at print scale, with red lines where two features would merge.
+     - If `layout.problems` is not empty, the face is too small for this nozzle. That is a question-round topic, not something to ship: offer a 0.2 nozzle, a bigger size, an inlaid colour face or fewer features (`references/questions.md`).
 4. **Model.**
    - Copy the matching template (`model_template.py` for round figures,
      `box_template.py` for box-like ones) plus `scripts/shapes.py` into
@@ -310,6 +318,10 @@ actually look at them.
   not `side`.
 - **The silhouette is not the front edge.** Tilted cuffs and brims hang
   lower at the sides. AI reference sheets disagree between views.
+- **A face drawn by eye on a small figure prints as a grimace.**
+  - The first service order was a 25 mm snowman on a 0.4 nozzle. It had 0.7 mm strokes and only 0.41 mm of body between the nose and the smile.
+  - The slicer merged the nose and the smile into one blob.
+  - Lay faces out with `kawaii_face` and fix every problem before building.
 - **Pixel-row profiles band the surface.** Thin the points; use PCHIP.
 - **build123d traps**:
   - `scale()` ignores a shape's Location (bake with `& Box`);
@@ -356,6 +368,7 @@ A model is done when all of these hold:
 - [ ] You have looked at `views_check.png` and the comparison render with
   your image tool: the proportions match view by view, and every deviation
   was approved.
+- [ ] Faces: `kawaii_face` / `check_face` report no problems, and you have looked at `face_preview`.
 - [ ] The close-up shows no banding, lumps or broken inlays.
 - [ ] Colour models: `ray_colors.py support` is OK, and `skin` is OK for
   each light/dark pair.

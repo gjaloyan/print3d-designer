@@ -319,6 +319,173 @@ def export_parts(parts: dict, folder: Path, stem: str, step: bool = True, **fine
         print(f"dropped {debris} degenerate tessellation fragments")
 
 
+# ---------- faces ----------
+#
+# A face is a few strokes and dots a couple of millimetres apart. Two numbers
+# decide whether it prints: every stroke or dot must be at least two line
+# widths wide (else it gets no toolpath), and every strip of body between two
+# features must be two line widths too (else the slicer merges them: the
+# nose and the smile of a 25 mm snowman, 0.41 mm apart on a 0.4 nozzle,
+# printed as one blob that read as a grimace).
+
+def face_rules(nozzle: float) -> float:
+    """The narrowest stroke or dot, and the smallest gap between two features, in FINAL mm."""
+    return round(2.25 * nozzle + 0.049, 1)  # two line widths: 0.5 mm on a 0.2 nozzle, 0.9 mm on a 0.4
+
+
+LINE_ASPECT = 2.5  # a stroke shorter than this many widths reads as a blob, not a line
+SMILE_RADIUS = 3.0  # a smile arc narrower than this many stroke widths reads as an open mouth
+
+
+def check_face(parts: dict, widths: dict, nozzle: float, lengths: dict | None = None) -> list[str]:
+    """What keeps a face layout from printing or reading right. `parts` are 2D sketches in FINAL mm
+    (x across, y up), `widths` their stroke widths or dot diameters, `lengths` the strokes'
+    centre-line lengths (dots have none). Empty = good."""
+    least = face_rules(nozzle)
+    problems = [f"{name}: {w:.2f} mm wide, needs {least:.2f} mm on a {nozzle} mm nozzle"
+                for name, w in widths.items() if w < least - 1e-6]
+    problems += [f"{name}: {length:.2f} mm long and {widths[name]:.2f} mm wide, reads as a blob "
+                 f"(needs {LINE_ASPECT:g} x its width)"
+                 for name, length in (lengths or {}).items() if length < LINE_ASPECT * widths[name] - 1e-6]
+    names = list(parts)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            gap = parts[a].distance_to(parts[b])
+            if gap < least - 1e-6:
+                problems.append(f"{a} and {b}: {gap:.2f} mm apart, need {least:.2f} mm, or they print as one")
+    return problems
+
+
+class FaceLayout:
+    """A face ready for inlay() or engrave(): `parts` (name -> sketch), what was changed
+    to make it printable (`notes`) and what still is not (`problems`)."""
+
+    def __init__(self, parts: dict, widths: dict, nozzle: float, notes: list[str], lengths: dict | None = None):
+        self.parts, self.widths, self.nozzle, self.notes = parts, widths, nozzle, notes
+        self.lengths = lengths or {}
+        self.problems = check_face(parts, widths, nozzle, self.lengths)
+
+    @property
+    def sketch(self) -> Sketch:
+        shapes = list(self.parts.values())
+        return sum(shapes[1:], shapes[0])
+
+    def report(self) -> str:
+        lines = [f"face for a {self.nozzle} mm nozzle (minimum {face_rules(self.nozzle):.2f} mm):"]
+        lines += [f"  changed: {n}" for n in self.notes]
+        lines += [f"  PROBLEM: {p}" for p in self.problems] or ["  RESULT: printable"]
+        return "\n".join(lines)
+
+
+def kawaii_face(nozzle: float, eye_dx: float, eye_y: float, eye_r: float, mouth_y: float, mouth_r: float,
+                mouth_sweep: float = 100.0, nose_y: float | None = None, nose_r: float = 0.0,
+                eyes: str = "arc", eye_sweep: float = 130.0, stroke: float = 0.0) -> FaceLayout:
+    """A cartoon face in FINAL mm that a `nozzle` can print, from numbers measured on the picture.
+
+    - eyes at (+-eye_dx, eye_y): happy arcs of radius eye_r ("arc", like ^ ^) or dots ("dot");
+    - a smile whose LOWEST point is at mouth_y: arc radius mouth_r, opening mouth_sweep degrees;
+    - an optional nose dot at nose_y, radius nose_r.
+
+    Strokes and dots grow to the printable minimum, a smile thick for its size gets a bigger
+    radius (3 stroke widths) and a too-short one opens wider (up to 160 degrees), the nose moves
+    down below the eyes and the mouth below the nose when they would
+    touch, and the nose is dropped only when it fits nowhere; each change is in `notes`.
+    Anything left in `problems` means the face is too small for this nozzle: offer a bigger size,
+    a 0.2 nozzle or an inlaid colour face in the question round instead of shipping it."""
+    least = face_rules(nozzle)
+    width = max(stroke, least)
+    notes = [] if stroke >= least or not stroke else [f"strokes {stroke:.2f} -> {width:.2f} mm"]
+    parts, widths, lengths = {}, {}, {}
+    for side, sx in (("left eye", -1), ("right eye", 1)):
+        if eyes == "dot":
+            r = max(eye_r, least / 2)
+            parts[side] = Sketch() + Pos(sx * eye_dx, eye_y) * Circle(r)
+            widths[side] = 2 * r
+        else:
+            parts[side] = strokes([CenterArc((sx * eye_dx, eye_y), eye_r, 90 - eye_sweep / 2, eye_sweep)], width)
+            widths[side], lengths[side] = width, eye_r * math.radians(eye_sweep)
+    if eyes == "dot" and eye_r < least / 2:
+        notes.append(f"eye dots {2 * eye_r:.2f} -> {least:.2f} mm")
+    eyes_only = [parts["left eye"], parts["right eye"]]
+    nose = None
+    if nose_y is not None and nose_r > 0:
+        r = max(nose_r, least / 2)
+        if r > nose_r:
+            notes.append(f"nose {2 * nose_r:.2f} -> {2 * r:.2f} mm")
+        drop = 0.0
+        nose = Sketch() + Pos(0, nose_y) * Circle(r)
+        while min(nose.distance_to(e) for e in eyes_only) < least and drop < 3 * least:
+            drop += 0.05
+            nose = Sketch() + Pos(0, nose_y - drop) * Circle(r)
+        if min(nose.distance_to(e) for e in eyes_only) < least:
+            notes.append("nose dropped: no room between the eyes")
+            nose = None
+        elif drop:
+            notes.append(f"nose moved {drop:.2f} mm down, clear of the eyes")
+
+    if mouth_r < SMILE_RADIUS * width:  # a thick short arc reads as an open grin, not a smile line
+        notes.append(f"smile widened from radius {mouth_r:.2f} to {SMILE_RADIUS * width:.2f} mm so it stays a line")
+        mouth_r = SMILE_RADIUS * width
+    sweep = mouth_sweep
+    while mouth_r * math.radians(sweep) < LINE_ASPECT * width and sweep < 160:
+        sweep = min(160.0, sweep + 5)
+    if sweep != mouth_sweep:
+        notes.append(f"smile opened from {mouth_sweep:.0f} to {sweep:.0f} degrees so it reads as a line")
+
+    def smile(low: float) -> Sketch:
+        return strokes([CenterArc((0, low + mouth_r), mouth_r, 270 - sweep / 2, sweep)], width)
+
+    lengths["mouth"] = mouth_r * math.radians(sweep)
+    mouth = smile(mouth_y)
+    blockers = [parts["left eye"], parts["right eye"]] + ([nose] if nose is not None else [])
+    shift = 0.0
+    while min(mouth.distance_to(b) for b in blockers) < least and shift < 3 * least:
+        shift += 0.05
+        mouth = smile(mouth_y - shift)
+    if shift:
+        notes.append(f"mouth moved {shift:.2f} mm down to keep {least:.2f} mm of body around it")
+    if nose is not None:
+        parts["nose"], widths["nose"] = nose, 2 * max(nose_r, least / 2)
+    parts["mouth"], widths["mouth"] = mouth, width
+    return FaceLayout(parts, widths, nozzle, notes, lengths)
+
+
+def face_preview(layout: FaceLayout, path: Path, px_per_mm: int = 80) -> Path:
+    """The face at print scale: features in black on a 1 mm grid, a dot one line wide for
+    scale, and every too-close pair joined by a red line. Look at it before modelling."""
+    from PIL import Image, ImageDraw
+
+    boxes = [s.bounding_box() for s in layout.parts.values()]
+    x0, y0 = min(b.min.X for b in boxes) - 1.5, min(b.min.Y for b in boxes) - 1.5
+    x1, y1 = max(b.max.X for b in boxes) + 1.5, max(b.max.Y for b in boxes) + 1.5
+    w, h = int((x1 - x0) * px_per_mm), int((y1 - y0) * px_per_mm)
+    img = Image.new("RGB", (w, h + 40), "white")
+    draw = ImageDraw.Draw(img)
+    to_px = lambda x, y: ((x - x0) * px_per_mm, h - (y - y0) * px_per_mm)  # noqa: E731
+    for gx in range(math.ceil(x0), math.floor(x1) + 1):
+        draw.line([to_px(gx, y0), to_px(gx, y1)], fill=(225, 225, 225))
+    for gy in range(math.ceil(y0), math.floor(y1) + 1):
+        draw.line([to_px(x0, gy), to_px(x1, gy)], fill=(225, 225, 225))
+    for sketch in layout.parts.values():
+        for face in sketch.faces():
+            verts, tris = face.tessellate(0.005)
+            for a, b, c in tris:
+                draw.polygon([to_px(verts[i].X, verts[i].Y) for i in (a, b, c)], fill="black")
+    least = face_rules(layout.nozzle)
+    names = list(layout.parts)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            gap, pa, pb = layout.parts[a].distance_to_with_closest_points(layout.parts[b])
+            if gap < least - 1e-6:
+                draw.line([to_px(pa.X, pa.Y), to_px(pb.X, pb.Y)], fill="red", width=3)
+    line = 1.1 * layout.nozzle * px_per_mm
+    draw.ellipse([10, h + 10, 10 + line, h + 10 + line], fill=(40, 90, 200))
+    verdict = "printable" if not layout.problems else f"{len(layout.problems)} problem(s): red = too close"
+    draw.text((20 + line, h + 12), f"blue dot = one {layout.nozzle} mm line; grid 1 mm; {verdict}", fill="black")
+    img.save(path)
+    return Path(path)
+
+
 # ---------- self-check ----------
 
 def _check() -> int:
@@ -340,6 +507,30 @@ def _check() -> int:
         "band_grooves": lambda: band_grooves(10, 12, 0.8, 0.5, 0, 5),
         "v_grooves": lambda: v_grooves(10, [2, 4], 0.5),
     }
+    snowman = dict(eye_dx=2.1, eye_y=16.45, eye_r=0.8, mouth_y=15.1, mouth_r=1.1, mouth_sweep=70, nose_y=16.3,
+                   nose_r=0.42, stroke=0.7)  # the 25 mm snowman's face that printed as one blob on a 0.4 nozzle
+
+    def fixed_face():  # the same numbers on a 0.2 nozzle lay out cleanly
+        face = kawaii_face(0.2, **snowman)
+        if face.problems:
+            raise ValueError("; ".join(face.problems))
+        return extrude(face.sketch, 0.5)
+
+    def too_small_face():  # on a 0.4 nozzle the eyes are too short to read: it must say so
+        if not any("eye" in p for p in kawaii_face(0.4, **snowman).problems):
+            raise ValueError("kawaii_face passed eyes too small for a 0.4 nozzle")
+        return Box(1, 1, 1)
+
+    def caught_blob():  # the same face as it was drawn must be refused
+        raw = {"nose": Sketch() + Pos(0, 16.3) * Circle(0.42),
+               "mouth": strokes([CenterArc((0, 16.2), 1.1, 235, 70)], 0.7)}
+        if not check_face(raw, {"nose": 0.84, "mouth": 0.7}, 0.4):
+            raise ValueError("check_face passed a face that prints as one blob")
+        return Box(1, 1, 1)
+
+    cases["kawaii_face"] = fixed_face
+    cases["face too small"] = too_small_face
+    cases["check_face"] = caught_blob
     bad = 0
     for name, make in cases.items():
         try:

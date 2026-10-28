@@ -205,6 +205,39 @@ Lesson: a skill is used by agents with other tools and weaker eyes. Ship
 the knowledge as code (`shapes.py`) and the judgement as numbers
 (`compare_views`), not only as prose.
 
+## 9. The first service order: a face that printed as a grimace
+
+**The order.** A snowman in a knit beanie, 25 mm, on a 0.4 nozzle, made
+by Sonnet 5.5 through the web service. It ran 39 steps and cost $1.46.
+
+**What went well.**
+- The silhouette matched (IoU 0.94–0.96).
+- The colours by layer, the tilted cuff and the ribs were right.
+
+**What went wrong: the face.** The agent recommended an engraved face and
+drew it by hand:
+- strokes 0.7 mm wide, when a 0.4 nozzle needs 0.9;
+- 0.41 mm of body between the nose dot and the smile;
+- a nose made as a dimple.
+
+The slicer merged the nose and the smile into one shape, which read as a
+grimace.
+
+**Why.** The stroke rule was in the docs but nothing checked it, and there
+was no rule at all for gaps between features.
+
+**The fix.**
+- `check_face` measures widths, gaps and stroke length.
+- `kawaii_face` lays a face out from measured numbers and repairs what it
+  can: wider strokes, the nose below the eyes, the smile below the nose.
+  What it cannot repair it reports.
+- `face_preview` draws the face at print scale with the merging pairs in
+  red.
+- The question round offers only face options that pass.
+
+With the same numbers: the face fails at 25 mm on a 0.4 nozzle, and passes
+on a 0.2 nozzle or at 40 mm.
+
 ## Patterns worth repeating
 
 1. Ask before deviating from the reference, with options and a

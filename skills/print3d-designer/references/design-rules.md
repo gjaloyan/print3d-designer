@@ -47,6 +47,30 @@ and `layers.png` for every model.
 - Check every small feature in `layers.png`. It draws lines at their true
   width, so a dropped or torn feature is visible there.
 
+### Faces
+
+A face needs three numbers in FINAL mm. `check_face` and `kawaii_face` in
+`shapes.py` measure all three:
+
+- every stroke or dot is at least 2 line widths wide (0.5 / 0.9 mm on a
+  0.2 / 0.4 nozzle);
+- at least 2 line widths of body between any two features, or the slicer
+  merges them;
+- a stroke at least 2.5 times as long as it is wide, or it reads as a blob.
+
+The same snowman face at three settings:
+
+| Figure, nozzle | Result |
+|---|---|
+| 25 mm, 0.4 | fails: the eyes are blobs, and the smile has to drop 1.6 mm below the nose |
+| 25 mm, 0.2 | passes: the smile opens to 95° and drops 0.15 mm |
+| 40 mm, 0.4 | passes |
+
+- Engraving shows only as shadow. On a light body it reads much weaker
+  than the dark face in the picture.
+- Inlay the face in a dark colour whenever the printer can change filament.
+- An engraved nose dot looks like a hole: leave it out, or inlay it.
+
 ## 3. Overhangs and how to remove them
 
 Slope is measured from horizontal on a downward-facing surface:
