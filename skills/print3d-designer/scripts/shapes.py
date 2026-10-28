@@ -226,6 +226,23 @@ def tapered_stroke(edge, width: float, n: int = 24) -> Sketch:
     return Sketch() + make_face(Polyline(*(left + right[::-1][1:-1]), close=True))
 
 
+def cut_many(body: Part, cutters) -> Part:
+    """Subtract many small cutters (quills, grooves, holes) in ONE boolean. A hedgehog's 64 quill
+    grooves took 5 s this way and 19 s one by one. A cutter that breaks the solid is found by
+    halving the list and left out, and that is printed."""
+    cutters = list(cutters)
+    if not cutters:
+        return body
+    result = body.cut(*cutters)
+    if result.is_valid and 0 < result.volume <= body.volume:
+        return result
+    if len(cutters) == 1:
+        print("cut_many: left out one cutter that breaks the solid")
+        return body
+    half = len(cutters) // 2
+    return cut_many(cut_many(body, cutters[:half]), cutters[half:])
+
+
 def inlay(sketch, skin_solid: Part) -> Part:
     """Flush colour piece: the skin under a front-view drawing. Subtract it
     from the body colour and give it its own colour (one STL per colour)."""
@@ -503,6 +520,10 @@ def _check() -> int:
         "engrave": lambda: engrave(strokes([CenterArc((0, 25), 4, 20, 140)], 1.0), -24.5,
                                    skin(rounded_box([(0, 30, 24), (50, 27, 19)], 9),
                                         rounded_box([(0, 30, 24), (50, 27, 19)], 9, inset=1.0), front_of(-5))),
+        "cut_many": lambda: cut_many(profile_solid([(10, 0), (14, 6), (15, 14), (11, 22), (6, 26)]), [
+            capsule(Vector(14.6 * math.cos(t), 14.6 * math.sin(t), z), Vector(14.6 * math.cos(t + 0.15),
+                    14.6 * math.sin(t + 0.15), z + 2.5), 0.5)
+            for t, z in [(0.4 + 0.5 * k, 9 + (k % 3) * 1.5) for k in range(11)]]),
         "raised_ribs": lambda: raised_ribs(spheroid((0, 0, 0), 11, 8), spheroid((0, 0, 0), 10, 7), 16, 0.8, 30, 5, 10),
         "band_grooves": lambda: band_grooves(10, 12, 0.8, 0.5, 0, 5),
         "v_grooves": lambda: v_grooves(10, [2, 4], 0.5),

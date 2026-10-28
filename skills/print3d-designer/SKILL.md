@@ -141,7 +141,7 @@ non-zero on a real problem.
 | `slice.py model.stl --nozzle 0.2 [--set layer_height=0.16]` | slices with the user's presets (flattened), part centred and not rotated; report plus `toolpaths.png` and `layers.png` |
 | `slice.py --presets machine [--match S1]` | lists the slicer's preset names (the user's own first), for printer.json |
 | `gcode_view.py plate_1.gcode --layers 3.2,7.5` | report and images for any G-code; called by slice and make_3mf |
-| `make_3mf.py print.json --check` | colour 3MF project (one plate or several) with presets and colours; `--check` slices it and draws the layers in filament colours, with change counts |
+| `make_3mf.py print.json --check` | 3MF project (one colour or several, one plate or several) with presets and colours; `--check` slices it and draws the layers in filament colours, with change counts. `"preset"` may be left out: the material printer.json names. With no slicer configured it writes a geometry-only 3MF instead: one object, a part per colour, centred on the bed |
 | `video_frames.py rec.mp4 --out frames --sheet sheet.jpg` | frames plus a contact sheet from a user's screen recording |
 | `moonraker.py info / status / ace / history / files / config / settings / snapshot` | read-only printer queries |
 | `setup.py` | once per machine: venv, starter printer.json, self-test |
@@ -187,6 +187,7 @@ actually look at them.
 | other lines (arms, folds) | `strokes`, `tapered_stroke`, then `inlay` (colour) or `engrave` (45°, no ceilings) | strokes ≥ 2 line widths in final mm |
 | knit, ribs | `raised_ribs`, `band_grooves`, `v_grooves` | ribs ≥ 0.5 mm on a 0.2 nozzle |
 | one colour above a height | `& above(z)` / `- above(z)` | split at the boundary's highest point |
+| many small cuts (quills, grooves, holes) | `cut_many(body, cutters)` | one boolean: 64 quills in 5 s instead of 19 s one by one; a cutter that breaks the solid is left out and reported |
 
 ## Quick Reference
 
@@ -259,6 +260,10 @@ actually look at them.
      with `scaled()`.
    - Export with `export_parts` (mono STL + STEP, `parts/<colour>.stl`).
    - Long boolean builds (minutes) run in the background.
+   - Iterate fast:
+     - export previews coarsely (`tolerance=0.01`) and finely once, at the end;
+     - test a risky boolean on the part alone, not with a full rebuild;
+     - cut many features with `cut_many`. A hedgehog cut quill by quill took 80–110 s per rebuild.
 5. **Verify the geometry.**
    - `check_model.py`: watertight, 1 body, fits; look at `preview.png`.
    - **`compare_views.py` must PASS**: IoU ≥ 0.92 and aspect within 8% on

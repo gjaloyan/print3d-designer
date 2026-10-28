@@ -67,6 +67,9 @@ def write_presets(spec: dict, work: Path) -> tuple[list[str], list[str]]:
         settings.append(str(path))
     filaments = []
     for i, fil in enumerate(spec["filaments"], 1):
+        fil.setdefault("colour", "#FFFFFF")
+        if fil.get("preset", "default") == "default":  # the material printer.json names for this nozzle
+            fil["preset"] = preset["filament"]
         cfg = sl.finalize(sl.flatten(index, "filament", fil["preset"]), "filament", msys)
         cfg["filament_colour"] = [fil["colour"]]
         path = work / f"filament_{i}.json"
@@ -167,6 +170,57 @@ def export_plates(spec: dict, base: Path, work: Path, settings, filaments, name:
             "--export-3mf", name, "--outputdir", str(work)]
 
 
+def write_plain_3mf(plates: list[dict], base: Path, path: Path, centre: tuple[float, float],
+                    title: str = "Model") -> None:
+    """A geometry-only 3MF any slicer opens: per plate ONE object whose parts are the colour
+    parts (separate touching objects make Bambu-family slicers fail), centred on the bed
+    (plates side by side), part colours as materials."""
+    colours, objects, items = [], [], []
+    offset = 0.0
+    for plate in plates:
+        meshes = [trimesh.load_mesh(base / p["stl"], force="mesh") for p in plate["parts"]]
+        lo = np.min([m.bounds[0] for m in meshes], axis=0)
+        hi = np.max([m.bounds[1] for m in meshes], axis=0)
+        shift = [centre[0] + offset - (lo[0] + hi[0]) / 2, centre[1] - (lo[1] + hi[1]) / 2, -lo[2]]
+        offset += hi[0] - lo[0] + 10
+        components = []
+        for part, mesh in zip(plate["parts"], meshes):
+            colour = part.get("colour", "#FFFFFF").upper()
+            if colour not in colours:
+                colours.append(colour)
+            v = mesh.vertices + shift
+            verts = "".join(f'<vertex x="{x:.4f}" y="{y:.4f}" z="{z:.4f}"/>' for x, y, z in v)
+            tris = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in mesh.faces)
+            oid = len(objects) + 2
+            name = part.get("name", Path(part["stl"]).stem).replace('"', "'")
+            objects.append(f'<object id="{oid}" type="model" name="{name}" pid="1" pindex="{colours.index(colour)}">'
+                           f"<mesh><vertices>{verts}</vertices><triangles>{tris}</triangles></mesh></object>")
+            components.append(f'<component objectid="{oid}"/>')
+        oid = len(objects) + 2
+        name = str(plate.get("name") or title).replace('"', "'")
+        objects.append(f'<object id="{oid}" type="model" name="{name}"><components>{"".join(components)}'
+                       "</components></object>")
+        items.append(f'<item objectid="{oid}"/>')
+    materials = "".join(f'<base name="{c}" displaycolor="{c}FF"/>' for c in colours)
+    model = ('<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" '
+             'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources>'
+             f'<basematerials id="1">{materials}</basematerials>{"".join(objects)}</resources>'
+             f'<build>{"".join(items)}</build></model>')
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.'
+                   'openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/'
+                   'vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/'
+                   'vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>')
+        z.writestr("_rels/.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.'
+                   'openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" '
+                   'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>')
+        z.writestr("3D/3dmodel.model", model)
+
+
+def slicer_ready() -> bool:
+    return bool(sl.SLICER and sl.SLICER.exists() and sl.SYSTEM_DIR and sl.DEFAULTS)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("spec", type=Path)
@@ -177,6 +231,17 @@ def main() -> int:
     project = base / spec.get("output", f"{base.name}.3mf")
 
     plates = spec.get("plates")
+    if not slicer_ready():
+        # No slicer or printer presets: still a 3MF that opens anywhere, with the model centred.
+        for plate in plates or [{"parts": spec["parts"]}]:
+            for part in plate["parts"]:
+                part.setdefault("colour", spec["filaments"][part["filament"] - 1].get("colour", "#FFFFFF"))
+        write_plain_3mf(plates or [{"parts": spec["parts"]}], base, project, sl.BED_CENTER,
+                        spec.get("title", base.name))
+        print(f"project : {project}")
+        print("no slicer in printer.json: geometry only (one object, a part per colour, centred on the bed); the "
+              "printer, material and print settings are chosen in the slicer")
+        return 0
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
         settings, filaments = write_presets(spec, work)
