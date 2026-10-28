@@ -398,12 +398,36 @@ def summary(tp: Toolpath) -> dict:
     return {
         "minutes": tp.time_min,  # the slicer's estimate, without the time of colour changes
         "grams": round(sum(tp.grams_per_tool), 2) if tp.grams_per_tool else round(extruded, 2),
+        # what the G-code itself extrudes (model, prime tower); the rest of "grams" is the purge
+        # the printer does on its own at each colour change
+        "extruded": round(extruded, 2),
         "grams_per_tool": tp.grams_per_tool,
         "tool_changes": tp.tool_changes,
         "tools": len(tp.tools),
         "layers": tp.layers,
+        "layer_height": round(float(np.median(tp.layer_h)), 3) if tp.layer_h else None,
         "height": round(max(tp.layer_z), 2) if tp.layer_z else None,
         "nozzle": tp.nozzle,
+    }
+
+
+def combine(plates: list[dict]) -> dict:
+    """The summary of a project with several plates: printed one after another."""
+    per_tool = [0.0] * max(len(p["grams_per_tool"]) for p in plates)
+    for p in plates:
+        for i, g in enumerate(p["grams_per_tool"]):
+            per_tool[i] += g
+    return {
+        "minutes": sum(p["minutes"] or 0 for p in plates),
+        **{k: round(sum(p[k] for p in plates), 2) for k in ("grams", "extruded")},
+        "grams_per_tool": [round(g, 2) for g in per_tool],
+        "tool_changes": sum(p["tool_changes"] for p in plates),
+        "tools": sum(1 for g in per_tool if g > 0) or max(p["tools"] for p in plates),
+        "layers": sum(p["layers"] for p in plates),
+        "layer_height": plates[0]["layer_height"],
+        "height": max((p["height"] or 0) for p in plates),
+        "nozzle": plates[0]["nozzle"],
+        "plates": plates,
     }
 
 

@@ -19,6 +19,9 @@ the bed centre and assembled by the slicer's CLI into ONE object whose parts
 carry their filament, with the user's machine/process/filament presets and
 colours saved in the project. --check slices every plate of the finished 3MF
 and renders the toolpaths coloured by filament.
+
+The 3MF also carries this recipe (Metadata/print3d_spec.json, with the folder
+the part paths are relative to), so the project can be rebuilt for another printer.
 """
 
 import argparse
@@ -138,10 +141,14 @@ def check(project: Path, out: Path) -> None:
     if run.returncode != 0 or not gcodes:
         tail = [l for l in (run.stdout + run.stderr).splitlines() if "error" in l.lower()][-10:]
         sys.exit("slicing the project failed:\n  " + "\n  ".join(tail))
+    plates = []
     for gcode in gcodes:
         tag = "" if len(gcodes) == 1 else f"_{gcode.stem}"
         print(f"==== {gcode.name}")
-        gcode_view.analyze(gcode, out / f"toolpaths{tag}.png", out / f"layers{tag}.png")
+        plates.append(gcode_view.summary(gcode_view.analyze(gcode, out / f"toolpaths{tag}.png",
+                                                            out / f"layers{tag}.png")))
+    if len(plates) > 1:  # each plate wrote its own summary.json over the last one: the whole project's
+        (out / "summary.json").write_text(json.dumps(gcode_view.combine(plates), indent=1), encoding="utf-8")
 
 
 def export_single(spec: dict, base: Path, work: Path, settings, filaments, name: str):
@@ -217,6 +224,16 @@ def write_plain_3mf(plates: list[dict], base: Path, path: Path, centre: tuple[fl
         z.writestr("3D/3dmodel.model", model)
 
 
+SPEC_ENTRY = "Metadata/print3d_spec.json"
+
+
+def embed_spec(project: Path, spec: dict, base: Path) -> None:
+    """Keep the project's recipe (parts, filaments, settings) inside the 3MF, so it can be sliced
+    again on another printer: the web service prices print orders on its own printer from it."""
+    with zipfile.ZipFile(project, "a", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(SPEC_ENTRY, json.dumps({"spec": spec, "base": base.resolve().as_posix()}, ensure_ascii=False))
+
+
 def slicer_ready() -> bool:
     return bool(sl.SLICER and sl.SLICER.exists() and sl.SYSTEM_DIR and sl.DEFAULTS)
 
@@ -238,6 +255,7 @@ def main() -> int:
                 part.setdefault("colour", spec["filaments"][part["filament"] - 1].get("colour", "#FFFFFF"))
         write_plain_3mf(plates or [{"parts": spec["parts"]}], base, project, sl.BED_CENTER,
                         spec.get("title", base.name))
+        embed_spec(project, spec, base)
         print(f"project : {project}")
         print("no slicer in printer.json: geometry only (one object, a part per colour, centred on the bed); the "
               "printer, material and print settings are chosen in the slicer")
@@ -258,6 +276,7 @@ def main() -> int:
         else:
             retitle(made, [spec.get("title", base.name)])
         shutil.copyfile(made, project)
+    embed_spec(project, spec, base)
     for i, plate in enumerate(plates or [{"name": spec.get("title", base.name), "parts": spec["parts"]}], 1):
         print(f"plate {i}: {plate['name']}")
         for p in plate["parts"]:
