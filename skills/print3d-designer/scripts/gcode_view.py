@@ -10,6 +10,7 @@ G-code, and prints time, filament and where bridges/supports/overhangs occur.
 """
 
 import argparse
+import json
 import math
 import sys
 from pathlib import Path
@@ -379,9 +380,26 @@ def render_layers(tp: Toolpath, chosen: list[int], out: Path) -> None:
     print(f"layers           : {out}")
 
 
+def summary(tp: Toolpath) -> dict:
+    """The numbers a price or a plan needs, in plain units."""
+    extruded = tp.filament_mm * FILAMENT_AREA / 1000 * tp.density
+    return {
+        "minutes": tp.time_min,  # the slicer's estimate, without the time of colour changes
+        "grams": round(sum(tp.grams_per_tool), 2) if tp.grams_per_tool else round(extruded, 2),
+        "grams_per_tool": tp.grams_per_tool,
+        "tool_changes": tp.tool_changes,
+        "tools": len(tp.tools),
+        "layers": tp.layers,
+        "height": round(max(tp.layer_z), 2) if tp.layer_z else None,
+        "nozzle": tp.nozzle,
+    }
+
+
 def analyze(gcode: Path, toolpaths_png: Path, layers_png: Path, heights=None) -> Toolpath:
+    """Report, images, and summary.json next to the G-code."""
     tp = Toolpath(gcode)
     report(tp)
+    (Path(gcode).parent / "summary.json").write_text(json.dumps(summary(tp), indent=1), encoding="utf-8")
     render_3d(tp, toolpaths_png)
     render_layers(tp, pick_layers(tp, heights), layers_png)
     return tp
