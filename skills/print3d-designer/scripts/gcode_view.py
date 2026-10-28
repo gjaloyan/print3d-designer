@@ -12,6 +12,7 @@ G-code, and prints time, filament and where bridges/supports/overhangs occur.
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -113,6 +114,10 @@ class Toolpath:
                         self.filament_colours = [c.strip() for c in raw.split("=")[1].split(";")]
                     elif raw.startswith("; filament used [g] = "):
                         self.grams_per_tool = [float(g) for g in raw.split("=")[1].split(",")]
+                    elif self.time_min is None and raw.startswith("; estimated printing time"):
+                        self.time_min = _minutes(raw.split("=", 1)[-1])  # profiles without M73 (Orca, Anycubic)
+                    elif self.time_min is None and "total estimated time:" in raw:
+                        self.time_min = _minutes(raw.split("total estimated time:", 1)[1])  # Bambu-style header
                     continue
                 words = raw.split(";", 1)[0].split()
                 if not words:
@@ -378,6 +383,13 @@ def render_layers(tp: Toolpath, chosen: list[int], out: Path) -> None:
     fig.savefig(out)
     plt.close(fig)
     print(f"layers           : {out}")
+
+
+def _minutes(text: str) -> float | None:
+    """'1d 2h 3m 4s' (any subset) in minutes."""
+    parts = re.findall(r"(\d+(?:\.\d+)?)\s*([dhms])\b", text)
+    scale = {"d": 1440.0, "h": 60.0, "m": 1.0, "s": 1 / 60}
+    return round(sum(float(v) * scale[u] for v, u in parts), 1) if parts else None
 
 
 def summary(tp: Toolpath) -> dict:
