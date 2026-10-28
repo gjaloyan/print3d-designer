@@ -78,6 +78,7 @@ class Toolpath:
         self.filament_colours: list[str] = []
         self.grams_per_tool: list[float] = []
         self.tool_changes = 0
+        self.feature_mm: dict[int, float] = {}  # filament extruded per feature
         segs = []
 
         x = y = z = e_abs = feed = 0.0
@@ -154,6 +155,8 @@ class Toolpath:
                         de = 0.0
                     feed = p.get("F", feed)
                     self.filament_mm += de
+                    if feature >= 0:
+                        self.feature_mm[feature] = self.feature_mm.get(feature, 0.0) + de
                     if de > 0 and layer >= 0 and not skip and (nx != x or ny != y):
                         pts = _arc(x, y, nx, ny, p, cmd == "G2") if cmd in ("G2", "G3") else [(x, y), (nx, ny)]
                         path_len = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
@@ -395,12 +398,16 @@ def _minutes(text: str) -> float | None:
 def summary(tp: Toolpath) -> dict:
     """The numbers a price or a plan needs, in plain units."""
     extruded = tp.filament_mm * FILAMENT_AREA / 1000 * tp.density
+    tower = tp.feature_mm.get(tp.features.index("Prime tower"), 0.0) if "Prime tower" in tp.features else 0.0
     return {
-        "minutes": tp.time_min,  # the slicer's estimate, without the time of colour changes
+        # the slicer's estimate; OrcaSlicer adds the profile's machine_load_filament_time per colour
+        # change, Anycubic Slicer Next leaves colour changes out
+        "minutes": tp.time_min,
         "grams": round(sum(tp.grams_per_tool), 2) if tp.grams_per_tool else round(extruded, 2),
         # what the G-code itself extrudes (model, prime tower); the rest of "grams" is the purge
         # the printer does on its own at each colour change
         "extruded": round(extruded, 2),
+        "tower": round(tower * FILAMENT_AREA / 1000 * tp.density, 2),  # the prime tower (purge goes there in Orca)
         "grams_per_tool": tp.grams_per_tool,
         "tool_changes": tp.tool_changes,
         "tools": len(tp.tools),
@@ -419,7 +426,7 @@ def combine(plates: list[dict]) -> dict:
             per_tool[i] += g
     return {
         "minutes": sum(p["minutes"] or 0 for p in plates),
-        **{k: round(sum(p[k] for p in plates), 2) for k in ("grams", "extruded")},
+        **{k: round(sum(p[k] for p in plates), 2) for k in ("grams", "extruded", "tower")},
         "grams_per_tool": [round(g, 2) for g in per_tool],
         "tool_changes": sum(p["tool_changes"] for p in plates),
         "tools": sum(1 for g in per_tool if g > 0) or max(p["tools"] for p in plates),
