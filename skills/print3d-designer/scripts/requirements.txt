@@ -1,0 +1,12 @@
+# Code-CAD and verification stack for the print3d-designer scripts.
+# Tested together on Python 3.13 (Windows 11), October 2026. Upper bounds keep
+# an unknown major release from breaking the scripts silently.
+build123d>=0.13,<0.15
+trimesh>=4.0,<6
+pyvista>=0.44,<0.51
+vtk>=9.3,<10
+numpy>=1.26,<3
+scipy>=1.11,<2
+matplotlib>=3.8,<4
+pillow>=10.0,<14
+# Not needed: networkx/rtree (the scripts avoid trimesh features that pull them in).

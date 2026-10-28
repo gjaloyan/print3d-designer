@@ -1,0 +1,32 @@
+{
+  "_comment": "Example printer.json: an Anycubic Kobra S1 with Rinkhals firmware, Micro Swiss 0.2/0.4 nozzles, an ACE Pro and Anycubic Slicer Next on Windows. scripts/setup.py writes a starter ~/.print3d/printer.json; fill it in with your own values. <account-id> is the numbered folder the slicer keeps your own presets in. List preset names with: python scripts/slice.py --presets machine",
+  "printer": {
+    "name": "Anycubic Kobra S1",
+    "bed": [250, 250, 250],
+    "moonraker": "http://192.168.1.50",
+    "colour_slots": 4
+  },
+  "slicer": {
+    "exe": "C:/Program Files/AnycubicSlicerNext/AnycubicSlicerNext.exe",
+    "user_presets": ["%APPDATA%/AnycubicSlicerNext/user/<account-id>", "%APPDATA%/AnycubicSlicerNext/user/default"],
+    "system_presets": "%APPDATA%/AnycubicSlicerNext/system/Anycubic"
+  },
+  "nozzles": {
+    "0.4": {
+      "machine": "Anycubic Kobra S1 0.4 Microswiss nozzle",
+      "process": "0.20mm Standard @AC KS1 My",
+      "filament": "Kingroon PETG_Orange_bridges",
+      "overrides": {},
+      "flow_limit": null
+    },
+    "0.2": {
+      "machine": "Anycubic Kobra S1 0.2 Microswiss nozzle",
+      "process": "0.12mm Standard @AC KS1 0.2 Microswiss",
+      "filament": "Kingroon PETG_Orange_bridges",
+      "overrides": {},
+      "flow_limit": 5.0
+    }
+  },
+  "filament": {"diameter": 1.75, "density": 1.27},
+  "flush_mm3_per_change": 280
+}

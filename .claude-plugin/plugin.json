@@ -1,0 +1,13 @@
+{
+  "name": "print3d-designer",
+  "version": "1.2.0",
+  "description": "Design, verify and slice 3D-printable models in code (build123d): figurines copied from a reference picture, colour 3MF projects, slicing with your own presets, G-code and printer checks.",
+  "author": {
+    "name": "gjaloyan",
+    "url": "https://github.com/gjaloyan"
+  },
+  "homepage": "https://github.com/gjaloyan/print3d-designer",
+  "repository": "https://github.com/gjaloyan/print3d-designer",
+  "license": "MIT",
+  "keywords": ["3d-printing", "fdm", "build123d", "cad", "slicer", "orcaslicer", "bambu-studio", "multicolor", "figurine", "skill"]
+}

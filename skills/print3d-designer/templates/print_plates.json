@@ -1,0 +1,20 @@
+{
+  "title": "Santa (two plates)",
+  "output": "santa.3mf",
+  "nozzle": "0.2",
+  "set": {"flush_into_infill": "0"},
+  "filaments": [
+    {"preset": "Kingroon PETG", "colour": "#B81D14"},
+    {"preset": "Kingroon PETG_White", "colour": "#FFFFFF"}
+  ],
+  "plates": [
+    {"name": "Santa body", "parts": [
+      {"stl": "print_body/red.stl", "name": "Body and hat", "filament": 1},
+      {"stl": "print_body/white.stl", "name": "Pom-pom", "filament": 2}
+    ]},
+    {"name": "Beard and brim", "parts": [
+      {"stl": "print_white/white.stl", "name": "Beard and brim", "filament": 2},
+      {"stl": "print_white/red.stl", "name": "Eyes", "filament": 1}
+    ]}
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "print3d-designer",
+  "description": "A skill that designs, checks and slices 3D-printable models with build123d.",
+  "owner": {
+    "name": "gjaloyan",
+    "url": "https://github.com/gjaloyan"
+  },
+  "plugins": [
+    {
+      "name": "print3d-designer",
+      "source": "./",
+      "description": "Design, verify and slice 3D-printable models in code (build123d): figurines copied from a reference picture, colour 3MF projects, slicing with your own presets, G-code and printer checks.",
+      "category": "design",
+      "tags": ["3d-printing", "build123d", "slicer", "multicolor"]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "title": "Egg buddy",
+  "output": "buddy.3mf",
+  "nozzle": "0.2",
+  "set": {"layer_height": "0.16", "internal_solid_infill_speed": "120", "flush_into_infill": "0"},
+  "filaments": [
+    {"preset": "Kingroon PETG_White", "colour": "#FFFFFF"},
+    {"preset": "Kingroon PETG", "colour": "#3F9E95"},
+    {"preset": "Kingroon PETG_black", "colour": "#212721"},
+    {"preset": "Kingroon PETG", "colour": "#FED141"}
+  ],
+  "parts": [
+    {"stl": "parts/white.stl", "name": "Body", "filament": 1},
+    {"stl": "parts/teal.stl", "name": "Cap", "filament": 2},
+    {"stl": "parts/black.stl", "name": "Eyes", "filament": 3},
+    {"stl": "parts/orange.stl", "name": "Nose", "filament": 4}
+  ]
+}

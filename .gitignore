@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+*.skill
+# machine-local printer config (see SKILL.md "Prerequisites")
+skills/print3d-designer/config/
+printer.json
+!skills/print3d-designer/templates/printer.json
+# outputs when models are built inside the checkout
+models/
+out/
