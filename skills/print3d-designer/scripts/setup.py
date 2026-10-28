@@ -79,7 +79,7 @@ def make_venv(home: Path, base: list[str]) -> Path:
         subprocess.run([*base, "-m", "venv", str(venv)], check=True)
     pip = [str(py), "-m", "pip", "--disable-pip-version-check"]
     subprocess.run([*pip, "install", "-q", "--upgrade", "pip"], check=True)
-    print("installing scripts/requirements.txt (a few minutes the first time) ...")
+    print("installing scripts/requirements.txt (5-10 minutes the first time) ...")
     start = time.time()
     if subprocess.run([*pip, "install", "-q", "-r", str(HERE / "requirements.txt")]).returncode != 0:
         raise SystemExit("pip failed (see above). Check the network, or try another Python with --python.")
@@ -152,6 +152,7 @@ def write_config(home: Path) -> Path:
 
 
 def main() -> int:
+    sys.stdout.reconfigure(line_buffering=True)  # keep our lines in order with the child processes
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--home", type=Path, default=DEFAULT_HOME, help="where the venv and printer.json go")
     parser.add_argument("--python", help="the interpreter to build the venv from")

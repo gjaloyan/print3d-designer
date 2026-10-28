@@ -84,7 +84,7 @@ Not for:
 
    `SKILL_DIR` is this skill's folder. The script:
    - creates `~/.print3d/venv` and installs `scripts/requirements.txt`
-     into it (a few minutes the first time);
+     into it (5-10 minutes the first time);
    - writes a starter `~/.print3d/printer.json` if there is none, filling
      in the slicer's paths when it finds Anycubic Slicer Next, OrcaSlicer
      or Bambu Studio;

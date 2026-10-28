@@ -59,6 +59,7 @@ def install(folder: Path) -> Path:
 
 
 def main() -> int:
+    sys.stdout.reconfigure(line_buffering=True)  # keep our lines in order with the child processes
     parser = argparse.ArgumentParser(description="Install the print3d-designer skill for AI agents.")
     parser.add_argument("--agent", action="append", choices=sorted(AGENTS), metavar="ID",
                         help="agent to install for (repeatable; --list shows them). Default: claude-code")
