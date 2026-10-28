@@ -52,6 +52,14 @@ def write_presets(spec: dict, work: Path) -> tuple[list[str], list[str]]:
         "filament": {},
     }
     sl.apply_overrides(cfgs, {**preset.get("overrides", {}), **spec.get("set", {})})
+    if len(spec["filaments"]) > 1 and "wipe_tower_x" not in spec.get("set", {}):
+        # The prime tower's default spot (OrcaSlicer: x 15, y 220) lies off a small bed;
+        # put it in the back-right corner, clear of the centred model.
+        bed_x, bed_y, _ = config.bed(sl.CFG)
+        width = cfgs["process"].get("prime_tower_width", "35")
+        width = float(width[0] if isinstance(width, list) else width)
+        cfgs["process"]["wipe_tower_x"] = [f"{bed_x - width - 10:.0f}"]
+        cfgs["process"]["wipe_tower_y"] = [f"{bed_y - width - 30:.0f}"]
     settings = []
     for kind in ("machine", "process"):
         path = work / f"{kind}.json"

@@ -51,6 +51,9 @@ OTHER_COLOR = "#aaaaaa"
 ALERT_FEATURES = ("Bridge", "Overhang wall", "Support", "Support interface")
 # Start-gcode purge lines are tagged Custom; they are not part of the model.
 SKIP_FEATURES = ("Custom",)
+# OrcaSlicer writes Bambu-style comments for Bambu printers; map them to the plain ones.
+BAMBU_MARKERS = (("; FEATURE: ", ";TYPE:"), ("; LINE_WIDTH: ", ";WIDTH:"), ("; CHANGE_LAYER", ";LAYER_CHANGE"),
+                 ("; Z_HEIGHT: ", ";Z:"), ("; LAYER_HEIGHT: ", ";HEIGHT:"))
 # What a nozzle can actually melt, mm^3/s, when it is below the filament
 # profile's own max_volumetric_speed (PETG profiles inherit 0.4-nozzle caps).
 # printer.json nozzles[*].flow_limit wins over these PETG rules of thumb.
@@ -82,6 +85,11 @@ class Toolpath:
         with open(path, encoding="utf-8", errors="replace") as f:
             for raw in f:
                 if raw.startswith(";"):
+                    if raw.startswith("; "):  # Bambu-style markers (OrcaSlicer for Bambu printers)
+                        for bambu, plain in BAMBU_MARKERS:
+                            if raw.startswith(bambu):
+                                raw = plain + raw[len(bambu):]
+                                break
                     if raw.startswith(";TYPE:"):
                         name = raw[6:].strip()
                         skip = name in SKIP_FEATURES
@@ -144,8 +152,11 @@ class Toolpath:
                         pts = _arc(x, y, nx, ny, p, cmd == "G2") if cmd in ("G2", "G3") else [(x, y), (nx, ny)]
                         path_len = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
                         flow = de / path_len * FILAMENT_AREA * feed / 60 if path_len >= MIN_FLOW_SEGMENT else 0.0
+                        w = width
+                        if w <= 0 and path_len >= MIN_FLOW_SEGMENT and self.layer_h:  # no width comments
+                            w = de * FILAMENT_AREA / (path_len * self.layer_h[-1])
                         for (ax, ay), (bx, by) in zip(pts, pts[1:]):
-                            segs.append((ax, ay, bx, by, nz, layer, feature, width, flow, tool))
+                            segs.append((ax, ay, bx, by, nz, layer, feature, w, flow, tool))
                     x, y, z = nx, ny, nz
         self.segs = np.array(segs, dtype=float).reshape(-1, 10)
         self.tools = sorted(set(self.segs[:, TOOL].astype(int)))
@@ -257,7 +268,8 @@ def report(tp: Toolpath) -> None:
                   f"  {np.median(s[mask, WIDTH]):.2f} mm  {s[mask, FLOW].max():5.1f} mm^3/s")
     alerts = [(name, tp.feature_layers(name)) for name in ALERT_FEATURES]
     alerts = [(n, l) for n, l in alerts if len(l)]
-    over = s[:, FLOW] > tp.flow_limit if tp.flow_limit else np.zeros(len(s), dtype=bool)
+    # 2% slack: the slicer caps moves at exactly the limit and E rounding lands a hair above it.
+    over = s[:, FLOW] > tp.flow_limit * 1.02 if tp.flow_limit else np.zeros(len(s), dtype=bool)
     clean = not alerts and not over.any()
     print("ALERTS           :" + (" none (no bridges, supports, overhang walls or flow over limit)" if clean else ""))
     for name, layers in alerts:
