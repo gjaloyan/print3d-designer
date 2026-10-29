@@ -10,7 +10,6 @@ G-code back layer by layer.
 It works with Claude Code, Hermes Agent, Codex, Cursor, Gemini CLI and any
 other agent that loads `SKILL.md` skills.
 
-![The reference picture (top) and the model the skill built from it (bottom)](docs/images/gift_box.jpg)
 
 ## What it does
 
