@@ -3,7 +3,7 @@
 Usage:
     python scripts/compare_views.py models/<name>/parts reference.jpg --views front,side,back,three-quarter
         [--ref-views x0:x1,...] [--anchor red] [--elevation 5] [--png views_check.png]
-        [--min-iou 0.92] [--max-aspect 0.08] [--info three-quarter]
+        [--info three-quarter]
 
 The model (a folder of STLs, or one STL) is rendered as a flat silhouette
 from each named view and laid over the matching view of the reference sheet,
@@ -20,12 +20,17 @@ compared with a side photo hides every mistake). views_check.png shows each
 picture view above its overlay: grey = both, blue = only in the picture,
 red = only in the model.
 
-PASS needs every view except --info ones at IoU >= --min-iou and aspect within
---max-aspect (defaults calibrated on four models: good ones scored 0.93-0.96,
-a cube copied by eye 0.81-0.90). A side view that fits better mirrored is
-reported too: "side" looks from +X, so a sheet whose side view faces right
-shows "left". This is the gate for agents that cannot look at images well:
-a model that fails it does not match the reference, whatever it looks like.
+PASS needs every view except --info ones at IoU >= 0.92 and aspect within 8%
+(calibrated on four models: good ones scored 0.93-0.96, a cube copied by eye
+0.81-0.90). The limits are fixed: --min-iou and --max-aspect may only be
+stricter, and front, side, left and back are always gated (--info is for
+views whose camera angle the picture leaves open, such as three-quarter).
+A side view that fits better mirrored is reported too: "side" looks from +X,
+so a sheet whose side view faces right shows "left". This is the gate for
+agents that cannot look at images well: a model that fails it does not match
+the reference, whatever it looks like. The verdict goes to views_check.json
+next to the parts folder, and make_3mf.py refuses to build a project from
+parts that failed it or changed after it.
 Views (camera from the model): front, side (+X), back, left, three-quarter,
 three-quarter-left, front-left, back-high, top. --elevation lifts the camera
 like the slightly-from-above product shots of AI reference sheets.
@@ -33,14 +38,16 @@ like the slightly-from-above product shots of AI reference sheets.
 
 import argparse
 import itertools
+import json
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
+import quiet_vtk  # noqa: F401  (before pyvista)
 import pyvista as pv
 import trimesh  # noqa: F401  (pyvista reads the STL; trimesh kept for parity with other scripts)
 from PIL import Image, ImageDraw
-from scipy import ndimage
 
 sys.path.insert(0, str(Path(__file__).parent))
 import measure_reference as mr  # noqa: E402
@@ -52,6 +59,9 @@ MIRROR = {"side": "left", "left": "side", "three-quarter": "three-quarter-left",
 LABELS = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255), (0, 255, 255), (255, 128, 0),
           (128, 0, 255)]
 BANDS = 10
+MIN_IOU, MAX_ASPECT = 0.92, 0.08
+ALWAYS_GATED = {"front", "side", "left", "back"}
+VERDICT = "views_check.json"  # make_3mf.py reads it
 
 
 def load_meshes(path: Path) -> list[tuple[str, pv.PolyData]]:
@@ -133,59 +143,23 @@ def band_errors(ref: np.ndarray, model: np.ndarray) -> list[float]:
     return out
 
 
-def split_views(obj: np.ndarray, anchor, expected: int, gap: int) -> list[tuple[int, int]]:
-    """Column spans of the views on the sheet.
-
-    A floor shadow often runs under the whole sheet and joins the views, so
-    rows below the anchor colour's lowest row are ignored, and the column
-    threshold is raised step by step until the sheet splits into the expected
-    number of views; each view is then widened back to its real edges."""
-    mask = obj.copy()
-    if anchor is not None and anchor.any():
-        mask[np.where(anchor.any(axis=1))[0].max() + 1:] = False
-    counts = mask.sum(axis=0)
-    spans = []
-    for frac in (0.15, 0.25, 0.35, 0.5, 0.65):
-        cols = np.where(counts > frac * counts.max())[0]
-        runs, start = [], cols[0]
-        for a, b in zip(cols, cols[1:]):
-            if b - a > gap:
-                runs.append([start, a])
-                start = b
-        runs.append([start, cols[-1]])
-        spans = [r for r in runs if r[1] - r[0] >= max(10, obj.shape[1] // 40)]
-        if len(spans) == expected:
-            break
-    low = 0.08 * counts.max()
-    for i, s in enumerate(spans):
-        left_limit = spans[i - 1][1] + 1 if i else 0
-        right_limit = spans[i + 1][0] - 1 if i + 1 < len(spans) else len(counts) - 1
-        while s[0] - 1 >= left_limit and counts[s[0] - 1] > low:
-            s[0] -= 1
-        while s[1] + 1 <= right_limit and counts[s[1] + 1] > low:
-            s[1] += 1
-    return [(int(a), int(b)) for a, b in spans]
-
-
 def reference_views(args, img: np.ndarray):
-    border = np.concatenate([img[:8].reshape(-1, 3), img[-8:].reshape(-1, 3),
-                             img[:, :8].reshape(-1, 3), img[:, -8:].reshape(-1, 3)])
-    bg = np.median(border, axis=0)
-    obj = ndimage.binary_fill_holes(ndimage.binary_closing(np.abs(img - bg).sum(axis=2) > args.threshold,
-                                                           iterations=3))
-    obj[:3], obj[-3:], obj[:, :3], obj[:, -3:] = False, False, False, False
+    bg = mr.background(img)
+    obj = mr.silhouette(img, bg, args.threshold)
     presets = mr.preset_masks(img, bg)
     anchor = mr.colour_mask(args.anchor, img, presets, args.tol) & obj if args.anchor else None
     if args.ref_views:
-        spans = [tuple(int(v) for v in s.split(":")) for s in args.ref_views.split(",")]
+        spans = mr.clamp_spans([tuple(int(v) for v in s.split(":")) for s in args.ref_views.split(",")],
+                               img.shape[1], "--ref-views")
     else:
-        spans = split_views(obj, anchor, args.expected, args.gap)
+        spans = mr.split_views(obj, anchor, args.gap, args.expected)
     views = []
     for x0, x1 in spans:
         sub = obj[:, x0:x1 + 1].copy()
         if anchor is not None and anchor[:, x0:x1 + 1].any():
             bottom = np.where(anchor[:, x0:x1 + 1].any(axis=1))[0].max()
             sub[bottom + 1:] = False  # floor shadow below the object
+        sub = mr.drop_specks(sub)
         rs, cs = crop(sub)
         views.append({"span": (int(x0), int(x1)), "mask": sub[rs, cs],
                       "rgb": img[rs, x0 + cs.start:x0 + cs.stop], "presets": {k: v[rs, x0 + cs.start:x0 + cs.stop]
@@ -249,16 +223,25 @@ def main() -> int:
     parser.add_argument("--ref-views", help="x0:x1,... pixel columns of each view (default: found automatically)")
     parser.add_argument("--anchor", help="body colour preset or #rrggbb: sets each view's bottom row (drops shadows)")
     parser.add_argument("--elevation", type=float, default=5.0, help="camera height above the horizon, degrees")
-    parser.add_argument("--min-iou", type=float, default=0.92)
+    parser.add_argument("--min-iou", type=float, default=MIN_IOU, help="stricter only")
     parser.add_argument("--skip-bottom", type=float, default=0.10, help="share of the height left out (floor shadow)")
-    parser.add_argument("--max-aspect", type=float, default=0.08)
-    parser.add_argument("--info", default="", help="views reported but not gated (e.g. three-quarter)")
+    parser.add_argument("--max-aspect", type=float, default=MAX_ASPECT, help="stricter only")
+    parser.add_argument("--info", default="", help="views reported but not gated: three-quarter and other views"
+                        " whose camera angle the picture leaves open")
     parser.add_argument("--png", type=Path, help="write the overlays here (default: next to the model)")
-    parser.add_argument("--threshold", type=float, default=12)
+    parser.add_argument("--threshold", type=float, default=20, help="RGB sum difference from the background")
     parser.add_argument("--gap", type=int, default=12)
     parser.add_argument("--tol", type=float, default=60)
     args = parser.parse_args()
 
+    if args.min_iou < MIN_IOU or args.max_aspect > MAX_ASPECT:
+        sys.exit(f"the gate's limits are fixed (IoU >= {MIN_IOU}, aspect within {MAX_ASPECT:.0%}): stricter is"
+                 " allowed, looser is not. Fix the model; if the user has seen views_check.png and accepts the"
+                 ' difference, make_3mf.py takes --accept-views "<their words>"')
+    info = {v.strip() for v in args.info.split(",") if v.strip()}
+    if info & ALWAYS_GATED:
+        sys.exit(f"--info {','.join(sorted(info & ALWAYS_GATED))}: front, side, left and back are always gated;"
+                 " --info is for views whose camera angle the picture leaves open (three-quarter...)")
     names_v = [v.strip() for v in args.views.split(",") if v.strip()]
     args.expected = len(names_v)
     img = np.asarray(Image.open(args.reference).convert("RGB")).astype(int)
@@ -272,7 +255,6 @@ def main() -> int:
     renders = {v: render_labels(meshes, v, args.elevation) for v in set(names_v)}
 
     results = [compare(r, renders[v], names, args.skip_bottom) for r, v in zip(refs, names_v)]
-    info = {v.strip() for v in args.info.split(",") if v.strip()}
     failed = []
     print(f"reference: {args.reference.name}, {len(refs)} views; model: {', '.join(names)}; elevation {args.elevation:g} deg")
     for r, v, res in zip(refs, names_v, results):
@@ -312,9 +294,8 @@ def main() -> int:
                   f" (mean IoU {best_iou:.3f} against {given:.3f}). Name the sheet's views left to right.")
             failed.append("order")
 
-    out = args.png or (args.model if args.model.is_dir() else args.model.parent) / "views_check.png"
-    if args.model.is_dir():
-        out = args.png or args.model.parent / "views_check.png"
+    folder = args.model.resolve().parent  # the model's folder: parts/ (or the STL) lies in it
+    out = args.png or folder / "views_check.png"
     panels = [panel(r, res, v) for r, v, res in zip(refs, names_v, results)]
     sheet = Image.new("RGB", (sum(p.width for p in panels), max(p.height for p in panels)), "white")
     x = 0
@@ -322,7 +303,13 @@ def main() -> int:
         sheet.paste(p, (x, 0))
         x += p.width
     sheet.save(out)
+    verdict = {"result": "FAIL" if failed else "PASS", "failed": failed, "time": time.time(),
+               "model": str(args.model.resolve()), "reference": str(args.reference.resolve()),
+               "views": [{"name": v, "gated": v not in info, "iou": round(res["iou"], 3),
+                          "aspect": round(res["aspect"], 3)} for v, res in zip(names_v, results)]}
+    (folder / VERDICT).write_text(json.dumps(verdict, indent=1), encoding="utf-8")
     print(f"\noverlays : {out} (grey both, blue only in the picture, red only in the model)")
+    print(f"verdict  : {folder / VERDICT} (make_3mf.py builds no project from failed parts)")
     print("RESULT   : " + ("PASS" if not failed else "FAIL (" + ", ".join(failed) + ")"))
     return 1 if failed else 0
 

@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.3.1 (2026-10-29)
+
+From a Hermes run that shipped a hard cube for the gift box: it lost the
+template to a compacted conversation, lowered the gate's limit and shipped
+a failed model. See case study 10.
+
+- The fidelity gate is binding. `compare_views.py` writes its verdict to
+  `views_check.json`; `make_3mf.py` builds no project (NOT READY, exit 3)
+  from parts that failed it or changed after it, unless the user accepts
+  the difference (`--accept-views "their words"`, kept in the 3MF's
+  recipe). `--min-iou` and `--max-aspect` only go stricter, and front,
+  side, left and back can no longer be left ungated with `--info`.
+- Pictures sent through a messenger: their JPEG noise added rows above a
+  white top, so the right model failed (0.88 instead of 0.95).
+  `compare_views.py` and `measure_reference.py` now drop specks and use
+  `--threshold 20`; the template passes on the original and on copies
+  recompressed down to JPEG quality 40.
+- `measure_reference.py` splits views on the silhouette, not on the anchor
+  colour: a ribbon across the body no longer splits one view into two.
+  Hand-given `--views` / `--rows` ending at the picture's edge are clamped
+  instead of crashing (a fix Hermes made in its own copy).
+- `quiet_vtk.py`: no more EGL/VTK warnings on headless machines (a render
+  printed ~5 KB of them into the agent's context).
+- `SKILL.md`: rule 5, keep the work in files (copy the template first, a
+  fresh conversation per model, reload the skill after a compaction);
+  colour parts mutually exclusive (from Hermes's copy).
+- `selftest.py` holds the gate to all of this: the recompressed picture
+  passes, views out of order fail, `make_3mf.py` refuses and then builds
+  once accepted, and `measure_reference.py` finds 4 views.
+
 ## 1.3.0 (2026-10-29)
 
 - Faces that print: `shapes.py` gains `kawaii_face` (lays a cartoon face

@@ -1,7 +1,7 @@
 """Build a multi-colour slicer project (.3mf) from colour parts.
 
 Usage:
-    python scripts/make_3mf.py models/<name>/print.json [--check]
+    python scripts/make_3mf.py models/<name>/print.json [--check] [--accept-views "<the user's words>"]
 
 Works with Bambu Studio-family slicers (Anycubic Slicer Next, Bambu Studio,
 OrcaSlicer) configured in printer.json.
@@ -22,6 +22,12 @@ and renders the toolpaths coloured by filament.
 
 The 3MF also carries this recipe (Metadata/print3d_spec.json, with the folder
 the part paths are relative to), so the project can be rebuilt for another printer.
+
+A model copied from a picture is not built while compare_views.py's verdict
+(views_check.json in the same folder) says FAIL, or while a part is newer than
+it: the deliverable does not exist until the model matches the picture. Only
+the user can accept a difference; --accept-views records their words in the
+recipe.
 """
 
 import argparse
@@ -238,14 +244,45 @@ def slicer_ready() -> bool:
     return bool(sl.SLICER and sl.SLICER.exists() and sl.SYSTEM_DIR and sl.DEFAULTS)
 
 
+VERDICT = "views_check.json"  # written by compare_views.py next to the parts folder
+
+
+def views_problem(spec: dict, base: Path) -> str | None:
+    """Why the parts may not become a project: compare_views.py failed them, or
+    a part changed after its verdict. No verdict: nothing was copied from a picture."""
+    path = base / VERDICT
+    if not path.exists():
+        return None
+    verdict = json.loads(path.read_text(encoding="utf-8"))
+    parts = [p["stl"] for plate in spec.get("plates") or [{"parts": spec["parts"]}] for p in plate["parts"]]
+    newer = [p for p in parts if (base / p).exists() and (base / p).stat().st_mtime > verdict["time"]]
+    if newer:
+        return f"{', '.join(newer)} changed after the last compare_views.py run: run it again"
+    if verdict.get("result") != "PASS":
+        return f"compare_views.py FAILED ({', '.join(verdict.get('failed', []))}): the model does not match the picture"
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("spec", type=Path)
     parser.add_argument("--check", action="store_true", help="slice the project and render it")
+    parser.add_argument("--accept-views", metavar="WORDS",
+                        help="the user's own words accepting a model that fails compare_views.py")
     args = parser.parse_args()
     spec = json.loads(args.spec.read_text(encoding="utf-8"))
     base = args.spec.parent
     project = base / spec.get("output", f"{base.name}.3mf")
+
+    problem = views_problem(spec, base)
+    if problem and not args.accept_views:
+        print(f"NOT READY: {problem}.\n"
+              "  No project was built. Fix the model and run compare_views.py again. If the user has seen\n"
+              "  views_check.png and accepts the difference, run again with --accept-views \"<their words>\".")
+        return 3
+    if problem:
+        print(f"views   : {problem}; accepted by the user: \"{args.accept_views}\"")
+        spec["accepted_views"] = args.accept_views
 
     plates = spec.get("plates")
     if not slicer_ready():

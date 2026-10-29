@@ -31,6 +31,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import quiet_vtk  # noqa: F401  (before pyvista)
 import pyvista as pv
 import trimesh
 from scipy import ndimage

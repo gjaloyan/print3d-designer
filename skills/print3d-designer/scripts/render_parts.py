@@ -16,6 +16,7 @@ import argparse
 import re
 from pathlib import Path
 
+import quiet_vtk  # noqa: F401  (before pyvista)
 import pyvista as pv
 from PIL import Image
 

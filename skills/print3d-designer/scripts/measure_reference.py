@@ -13,9 +13,10 @@ the rows are converted to mm: z from the object's lowest row upwards, x from
 the view's axis (the median centre of the silhouette), so a profile can be
 pasted into a model as (half-width, z) points.
 
-The views and the bottom row come from an anchor colour (--anchor, default
-the first of --colors): a floor shadow or a frame line would otherwise join
-the views or move the bottom. Colours are named presets (red, white, green, yellow, teal, orange, black,
+The views are column bands of the silhouette, so a ribbon of another colour
+across the body does not split a view. The bottom row comes from an anchor
+colour (--anchor, default the first of --colors): a floor shadow would
+otherwise join the views or move the bottom. Colours are named presets (red, white, green, yellow, teal, orange, black,
 pink, blue, skin) or #rrggbb (matched within --tol RGB distance). --masks
 writes the detected masks so you can check them before trusting the numbers.
 
@@ -23,7 +24,9 @@ Pitfalls this is built around: the silhouette edge is not the front edge (a
 tilted cuff's sides hang lower than its front - look at the side view too);
 AI-generated sheets are not consistent between views (measure each view and
 decide which to trust); pixel rows step in whole pixels, so thin the points
-(every 2nd-3rd row) before building a spline through them, or the surface bands.
+(every 2nd-3rd row) before building a spline through them, or the surface bands;
+a picture sent through a messenger is recompressed, and its noise would add
+rows above a white top (the --threshold default and dropped specks handle it).
 """
 
 import argparse
@@ -63,20 +66,77 @@ def colour_mask(name: str, img: np.ndarray, presets: dict, tol: float) -> np.nda
     return presets[name]
 
 
-def find_views(mask: np.ndarray, gap: int, min_width: int) -> list[tuple[int, int]]:
-    """Column bands of the mask. Columns count only when the mask is tall there,
-    so a floor shadow or a frame line joining the views does not merge them."""
+def background(img: np.ndarray) -> np.ndarray:
+    """The background colour: the median of an 8-pixel frame round the picture."""
+    border = np.concatenate([img[:8].reshape(-1, 3), img[-8:].reshape(-1, 3),
+                             img[:, :8].reshape(-1, 3), img[:, -8:].reshape(-1, 3)])
+    return np.median(border, axis=0)
+
+
+def silhouette(img: np.ndarray, bg: np.ndarray, threshold: float) -> np.ndarray:
+    """Pixels further than `threshold` (RGB sum) from the background, holes
+    filled; frame lines at the picture's edge are dropped."""
+    obj = ndimage.binary_fill_holes(ndimage.binary_closing(np.abs(img - bg).sum(axis=2) > threshold, iterations=3))
+    obj[:3], obj[-3:], obj[:, :3], obj[:, -3:] = False, False, False, False
+    return obj
+
+
+def drop_specks(mask: np.ndarray) -> np.ndarray:
+    """The object without the noise round it: a picture sent through a
+    messenger is recompressed, and one speck above a white top adds rows to
+    the object's height. Blobs under 1% of the largest one go."""
+    labels, n = ndimage.label(mask)
+    if n < 2:
+        return mask
+    sizes = ndimage.sum(mask, labels, range(1, n + 1))
+    return np.isin(labels, np.flatnonzero(sizes >= 0.01 * sizes.max()) + 1)
+
+
+def clamp_spans(spans: list[tuple[int, int]], size: int, flag: str) -> list[tuple[int, int]]:
+    """Hand-given pixel ranges are inclusive: an end equal to the picture's
+    width or height (its edge) means the last pixel."""
+    spans = [(max(0, min(a, size - 1)), max(0, min(b, size - 1))) for a, b in spans]
+    if any(b <= a for a, b in spans):
+        sys.exit(f"{flag}: each range needs its end after its start, inside the picture (0..{size - 1})")
+    return spans
+
+
+def split_views(obj: np.ndarray, anchor, gap: int, expected: int | None = None) -> list[tuple[int, int]]:
+    """Column spans of the views on the sheet, found on the silhouette: a
+    ribbon of another colour across the body must not split one view in two.
+
+    A floor shadow often runs under the whole sheet and joins the views, so
+    rows below the anchor colour's lowest row are ignored, and the column
+    threshold is raised step by step until the sheet splits into the expected
+    number of views (with no number, the first split counts); each view is
+    then widened back to its real edges."""
+    mask = obj.copy()
+    if anchor is not None and anchor.any():
+        mask[np.where(anchor.any(axis=1))[0].max() + 1:] = False
     counts = mask.sum(axis=0)
-    cols = np.where(counts > max(3, 0.15 * counts.max()))[0]
-    if not len(cols):
+    if not counts.any():
         sys.exit("no object found: check the background or pass --threshold")
-    views, start = [], cols[0]
-    for a, b in zip(cols, cols[1:]):
-        if b - a > gap:
-            views.append((start, a))
-            start = b
-    views.append((start, cols[-1]))
-    return [(a, b) for a, b in views if b - a >= min_width]
+    spans = []
+    for frac in (0.15, 0.25, 0.35, 0.5, 0.65):
+        cols = np.where(counts > frac * counts.max())[0]
+        runs, start = [], cols[0]
+        for a, b in zip(cols, cols[1:]):
+            if b - a > gap:
+                runs.append([start, a])
+                start = b
+        runs.append([start, cols[-1]])
+        spans = [r for r in runs if r[1] - r[0] >= max(10, obj.shape[1] // 40)]
+        if expected is None or len(spans) == expected:
+            break
+    low = 0.08 * counts.max()
+    for i, s in enumerate(spans):
+        left_limit = spans[i - 1][1] + 1 if i else 0
+        right_limit = spans[i + 1][0] - 1 if i + 1 < len(spans) else len(counts) - 1
+        while s[0] - 1 >= left_limit and counts[s[0] - 1] > low:
+            s[0] -= 1
+        while s[1] + 1 <= right_limit and counts[s[1] + 1] > low:
+            s[1] += 1
+    return [(int(a), int(b)) for a, b in spans]
 
 
 def extent(row: np.ndarray):
@@ -91,11 +151,12 @@ def main() -> int:
     parser.add_argument("--height", type=float, help="object height in mm, to convert pixels")
     parser.add_argument("--step", type=int, default=4, help="report every N-th row")
     parser.add_argument("--views", default="auto", help="auto, or x0:x1,x0:x1 pixel column ranges")
-    parser.add_argument("--anchor", help="colour that splits the views and sets the bottom row"
-                        " (default: the first of --colors); keeps floor shadows out")
+    parser.add_argument("--anchor", help="colour that sets each view's bottom row (default: the first of"
+                        " --colors); keeps floor shadows out")
     parser.add_argument("--rows", help="y0:y1 pixel rows of the object, overrides top/bottom detection")
     parser.add_argument("--gap", type=int, default=12, help="background columns that split views")
-    parser.add_argument("--threshold", type=float, default=12, help="RGB sum difference from background")
+    parser.add_argument("--threshold", type=float, default=20, help="RGB sum difference from background"
+                        " (20: steady on recompressed pictures)")
     parser.add_argument("--tol", type=float, default=60, help="RGB distance for #rrggbb colours")
     parser.add_argument("--json", type=Path)
     parser.add_argument("--masks", type=Path, help="write the detected masks as a PNG")
@@ -103,12 +164,8 @@ def main() -> int:
 
     img = np.asarray(Image.open(args.image).convert("RGB")).astype(int)
     h, w, _ = img.shape
-    border = np.concatenate([img[:8].reshape(-1, 3), img[-8:].reshape(-1, 3),
-                             img[:, :8].reshape(-1, 3), img[:, -8:].reshape(-1, 3)])
-    bg = np.median(border, axis=0)
-    diff = np.abs(img - bg).sum(axis=2)
-    obj = ndimage.binary_fill_holes(ndimage.binary_closing(diff > args.threshold, iterations=3))
-    obj[:3], obj[-3:], obj[:, :3], obj[:, -3:] = False, False, False, False  # frame lines
+    bg = background(img)
+    obj = silhouette(img, bg, args.threshold)
     presets = preset_masks(img, bg)
     names = [c.strip() for c in args.colors.split(",") if c.strip()]
     masks = {n: colour_mask(n, img, presets, args.tol) & obj for n in names}
@@ -118,20 +175,21 @@ def main() -> int:
     anchor = masks[anchor_name] if anchor_name in masks else (
         colour_mask(anchor_name, img, presets, args.tol) & obj if anchor_name else obj)
     if args.views == "auto":
-        views = find_views(anchor, args.gap, max(10, w // 40))
+        views = split_views(obj, anchor, args.gap)
     else:
-        views = [tuple(int(v) for v in rng.split(":")) for rng in args.views.split(",")]
+        views = clamp_spans([tuple(int(v) for v in rng.split(":")) for rng in args.views.split(",")], w, "--views")
     result = {"image": str(args.image), "size": [w, h], "views": []}
     for vi, (x0, x1) in enumerate(views):
-        x0, x1 = int(x0), int(x1)
-        o = obj[:, x0:x1 + 1]
+        o = drop_specks(obj[:, x0:x1 + 1])
         rows = np.where(o.any(axis=1))[0]
+        if not len(rows):
+            sys.exit(f"view {vi} (columns {x0}..{x1}) holds no object")
         top = int(rows.min())
         # Bottom from the anchor colour: below it is usually the floor shadow.
         anchor_rows = np.where(anchor[:, x0:x1 + 1].any(axis=1))[0]
         bottom = int(anchor_rows.max()) if len(anchor_rows) else int(rows.max())
         if args.rows:
-            top, bottom = (int(v) for v in args.rows.split(":"))
+            [(top, bottom)] = clamp_spans([tuple(int(v) for v in args.rows.split(":"))], h, "--rows")
         centres = [(e[0] + e[1]) / 2 for y in rows if (e := extent(o[y]))]
         axis = float(np.median(centres)) + x0
         mm = args.height / (bottom - top) if args.height else None
@@ -147,7 +205,7 @@ def main() -> int:
             if e:
                 row["object"] = [e[0] + x0, e[1] + x0]
             for n, m in masks.items():
-                ce = extent(m[y, x0:x1 + 1])
+                ce = extent(m[y, x0:x1 + 1] & o[y])
                 if ce:
                     row[n] = [ce[0] + x0, ce[1] + x0, ce[2]]
             view["rows"].append(row)

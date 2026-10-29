@@ -6,9 +6,12 @@ Usage:
 Builds the demo figurine from templates/model_template.py, then runs every
 check the workflow relies on: mesh report + preview, overhang spots, colour
 render, both ray tests and - when printer.json names a slicer - slicing and a
-colour 3MF project with its own check. Prints PASS/FAIL per step and leaves
-all outputs in DIR (default: a fresh folder in the system temp dir) so the
-images can be looked at.
+colour 3MF project with its own check. The gift box template is held to its
+picture: the fidelity gate must pass it on the picture and on a recompressed
+copy, fail it when the views are named out of order, and then make_3mf.py
+must refuse to build its project until the user accepts. Prints PASS/FAIL per
+step and leaves all outputs in DIR (default: a fresh folder in the system temp
+dir) so the images can be looked at.
 """
 
 import argparse
@@ -20,18 +23,22 @@ import tempfile
 import time
 from pathlib import Path
 
+from PIL import Image
+
 HERE = Path(__file__).resolve().parent
 SKILL = HERE.parent
 sys.path.insert(0, str(HERE))
 import config  # noqa: E402
 
 
-def run(label: str, args: list, results: list, expect_ok: bool = True) -> bool:
+def run(label: str, args: list, results: list, code: int = 0, check=None) -> bool:
+    """Run a script; the step passes on the expected exit code and, given `check`, output it accepts."""
     start = time.time()
     proc = subprocess.run([sys.executable, *map(str, args)], capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
-    ok = (proc.returncode == 0) if expect_ok else True
-    tail = (proc.stdout + proc.stderr).strip().splitlines()[-6:]
+    out = proc.stdout + proc.stderr
+    ok = proc.returncode == code and (check is None or check(out))
+    tail = out.strip().splitlines()[-6:]
     results.append((label, ok, time.time() - start))
     print(f"[{'PASS' if ok else 'FAIL'}] {label} ({time.time() - start:.0f} s)")
     for line in tail:
@@ -64,9 +71,29 @@ def main() -> int:
     if not run("build the round template", [model], results):
         return 1
     if run("build the box template (the real gift box)", [box_dir / "gift.py"], results):
+        picture = SKILL / "templates" / "box_reference.jpg"
+        compare = [HERE / "compare_views.py", box_dir / "parts"]
+        gated = ["--anchor", "red", "--info", "three-quarter"]
         run("compare_views: box against its picture (must PASS)",
-            [HERE / "compare_views.py", box_dir / "parts", SKILL / "templates" / "box_reference.jpg",
-             "--views", "front,side,back,three-quarter", "--anchor", "red", "--info", "three-quarter"], results)
+            [*compare, picture, "--views", "front,side,back,three-quarter", *gated], results)
+        # A picture sent through a messenger comes back recompressed; the gate must judge it the same.
+        Image.open(picture).save(box_dir / "picture_q60.jpg", quality=60)
+        run("compare_views: the same picture recompressed, as a messenger sends it (must PASS)",
+            [*compare, box_dir / "picture_q60.jpg", "--views", "front,side,back,three-quarter", *gated], results)
+        run("measure_reference: 4 views, the ribbons do not split them",
+            [HERE / "measure_reference.py", picture, "--colors", "red,white", "--height", "80", "--step", "40"],
+            results, check=lambda out: out.count("== view") == 4)
+        run("compare_views: the views named out of order (must FAIL)",
+            [*compare, picture, "--views", "side,front,back,three-quarter", *gated], results, code=1)
+        box_spec = {"title": "Gift box", "output": "gift.3mf", "nozzle": next(iter(cfg.get("nozzles") or {}), "0.4"),
+                    "filaments": [{"colour": "#C8102E"}, {"colour": "#FFFFFF"}],
+                    "parts": [{"stl": "parts/red.stl", "name": "Box", "filament": 1},
+                              {"stl": "parts/white.stl", "name": "Bow", "filament": 2}]}
+        (box_dir / "print.json").write_text(json.dumps(box_spec, indent=1), encoding="utf-8")
+        run("make_3mf: no project from parts that failed compare_views",
+            [HERE / "make_3mf.py", box_dir / "print.json"], results, code=3, check=lambda out: "NOT READY" in out)
+        run("make_3mf: the project once the user accepts the difference",
+            [HERE / "make_3mf.py", box_dir / "print.json", "--accept-views", "selftest: accepted"], results)
     run("check_model (mesh + preview.png)", [HERE / "check_model.py", out / "buddy.stl", "--png", out / "preview.png"],
         results)
     run("overhang_spots", [HERE / "overhang_spots.py", out / "buddy.stl"], results)

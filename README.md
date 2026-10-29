@@ -204,7 +204,7 @@ model only.
 | Check | Script | Passes when |
 |---|---|---|
 | Mesh | `check_model.py` | watertight, one body, fits the bed; overhangs explained |
-| Fidelity | `compare_views.py` | IoU ≥ 0.92 and the width-to-height ratio within 8% on every view |
+| Fidelity | `compare_views.py` | IoU ≥ 0.92 and the width-to-height ratio within 8% on every view; `make_3mf.py` builds no project from a model that fails it |
 | Overhangs | `overhang_spots.py` | none below 45° that were not designed |
 | Colours | `ray_colors.py support` / `skin` | no part hangs in the air; light colours ≥ 1 mm over dark ones |
 | Slice | `slice.py` / `make_3mf.py --check` → `gcode_view.py` | no unexplained ALERTS; every feature has toolpaths in `layers.png` |

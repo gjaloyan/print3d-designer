@@ -15,10 +15,11 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pyvista as pv
 import trimesh
 
 sys.path.insert(0, str(Path(__file__).parent))
+import quiet_vtk  # noqa: E402,F401  (before pyvista)
+import pyvista as pv  # noqa: E402
 import config  # noqa: E402
 
 CFG = config.load()

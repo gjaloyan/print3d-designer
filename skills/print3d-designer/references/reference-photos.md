@@ -62,11 +62,17 @@ python scripts/measure_reference.py reference.jpg --colors red,white --height 80
 ```
 
 - **Look at `masks.png` first.**
-  - Views are found as column bands of the anchor colour (the first colour
-    in `--colors`). A floor shadow or a frame line would otherwise join
-    them.
+  - Views are column bands of the silhouette, so a ribbon of another colour
+    across the body does not split one. The anchor colour (the first in
+    `--colors`) sets each view's bottom row and keeps a floor shadow from
+    joining the views.
+  - A picture sent through a messenger is recompressed. Specks of noise
+    round the object are dropped; if `masks.png` still shows some, raise
+    `--threshold` (default 20).
   - If the masks are wrong, pass `--views x0:x1,...`, `--rows y0:y1`, or a
-    `#rrggbb` colour with `--tol`.
+    `#rrggbb` colour with `--tol`. Rows are the object's, not the
+    picture's: `--rows 0:200` on a 200-pixel sheet scales every number by
+    the empty margin too.
 - `--height` is the design height you will build at, usually the object's
   height in the photo scaled to a round number such as 80.
 - Rows give, in mm:
@@ -116,6 +122,14 @@ python scripts/compare_views.py models/<name>/parts reference.jpg --views front,
 - Differences the user approved (removed ribbons, chamfered bases) show up
   in the colour overlap or in the bottom band. Say so; do not tune them
   away.
+- The limits are fixed. `--min-iou` and `--max-aspect` only go stricter, and
+  front, side, left and back are always gated. One agent passed
+  `--min-iou 0.40`, still failed, and shipped the model anyway.
+- The verdict goes to `views_check.json` next to the parts folder.
+  `make_3mf.py` builds no project from parts that failed or changed since.
+  When the user has seen `views_check.png` and accepts the difference, run
+  it with `--accept-views "<their words>"`; the words go into the 3MF's
+  recipe.
 
 ## 6. Compare, with your own eyes
 

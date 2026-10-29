@@ -4,7 +4,7 @@ description: Design, verify and slice 3D-printable models in code (build123d), i
 compatibility: Python 3.11-3.14; scripts/setup.py installs scripts/requirements.txt (build123d, trimesh, pyvista/VTK, scipy, matplotlib, pillow) into ~/.print3d/venv. Optional - a Bambu Studio-family slicer with its CLI, ffmpeg, a Moonraker printer on the network.
 license: MIT
 metadata:
-  version: 1.3.0
+  version: 1.3.1
   author: gjaloyan (designs and print testing), with Claude
   hermes:
     short_description: Design, check and slice 3D-printable models.
@@ -26,7 +26,7 @@ It produces STL/STEP files and ready-to-print colour 3MF projects. It does
 not send anything to the printer, and it changes the user's slicer presets
 only with their approval.
 
-**Four rules the user cares about most:**
+**Five rules the user cares about most:**
 
 1. **Ask before modelling.** Ask the user about the model in a
    question round before writing any model code:
@@ -46,6 +46,8 @@ only with their approval.
    - The model must pass `compare_views.py` against the picture before
      anything else. One agent eyeballed a gift box and got an even cube: 26%
      too deep, with a pancake for a bow. The gate failed it in one run.
+   - The gate's limits are fixed, and `make_3mf.py` builds no project from
+     parts that failed it. Only the user can accept a difference.
 3. **Look before handing over.**
    - Open every preview, overlay and `layers.png` with your image tool (see
      "Looking at images"), and fix what you see.
@@ -53,6 +55,17 @@ only with their approval.
 4. **Ask again when a choice appears.** After slicing, trade-offs such as
    layer height or plates go back to the user as a table of numbers. An
    ambiguous request ("merge", "smaller") gets a question, not a guess.
+5. **Keep the work in files, not in the conversation.**
+   - Copy the matching template into `models/<name>/` before measuring,
+     and edit that copy. Never write a model from memory when a template
+     fits.
+   - Start each model in a fresh conversation (Hermes: `/new`). A chat
+     already full of other topics gets compacted halfway through a model.
+   - After a compaction, or when this skill's text is gone (Hermes shows
+     `SKILL_PRUNED`), load the skill again and read the model file before
+     the next step.
+   - One agent lost the template this way and rebuilt the gift box from
+     memory: a hard cube with two upright slabs for a bow.
 
 ## When to Use
 
@@ -131,7 +144,7 @@ non-zero on a real problem.
 |---|---|
 | `measure_reference.py ref.jpg --colors red,white --height 80 --masks m.png --json p.json` | per-view, per-row silhouette and colour extents in mm, to paste into the model as profiles |
 | `shapes.py` (library; `python shapes.py` self-checks) | tested build123d shapes: bodies of revolution, `rounded_box`, `lobe`, tilted rims and skirts, cones, strokes, inlays, 45° engraving, knit ribs, export. Copy it next to the model |
-| `compare_views.py parts/ ref.jpg --views front,side,back,three-quarter --anchor red --info three-quarter` | **fidelity gate**: model silhouette against each picture view (IoU, aspect, width by height band, colour overlap). Also warns when the view order or a mirrored side view is wrong. Writes `views_check.png` |
+| `compare_views.py parts/ ref.jpg --views front,side,back,three-quarter --anchor red --info three-quarter` | **fidelity gate**: model silhouette against each picture view (IoU, aspect, width by height band, colour overlap). Also warns when the view order or a mirrored side view is wrong. Writes `views_check.png` and the verdict `views_check.json`. The limits are fixed; front, side, left and back are always gated |
 | `check_model.py model.stl --png preview.png` | watertight, bodies, size, volume, grams, bed fit, overhang areas; 4 views plus 2 overhang maps |
 | `overhang_spots.py model.stl` | WHERE the overhang patches are (x/y/z boxes), to find them in the code |
 | `render_parts.py parts/ --png cmp.png --views front,side,back,three-quarter --reference ref.jpg` | colour render stacked under the reference picture |
@@ -141,7 +154,7 @@ non-zero on a real problem.
 | `slice.py model.stl --nozzle 0.2 [--set layer_height=0.16]` | slices with the user's presets (flattened), part centred and not rotated; report plus `toolpaths.png` and `layers.png` |
 | `slice.py --presets machine [--match S1]` | lists the slicer's preset names (the user's own first), for printer.json |
 | `gcode_view.py plate_1.gcode --layers 3.2,7.5` | report and images for any G-code; called by slice and make_3mf |
-| `make_3mf.py print.json --check` | 3MF project (one colour or several, one plate or several) with presets and colours; `--check` slices it and draws the layers in filament colours, with change counts. `"preset"` may be left out: the material printer.json names. With no slicer configured it writes a geometry-only 3MF instead: one object, a part per colour, centred on the bed |
+| `make_3mf.py print.json --check` | 3MF project (one colour or several, one plate or several) with presets and colours; `--check` slices it and draws the layers in filament colours, with change counts. `"preset"` may be left out: the material printer.json names. With no slicer configured it writes a geometry-only 3MF instead: one object, a part per colour, centred on the bed. Builds nothing (NOT READY, exit 3) from parts that failed `compare_views` or changed after it, unless the user accepted: `--accept-views "their words"` |
 | `video_frames.py rec.mp4 --out frames --sheet sheet.jpg` | frames plus a contact sheet from a user's screen recording |
 | `moonraker.py info / status / ace / history / files / config / settings / snapshot` | read-only printer queries |
 | `setup.py` | once per machine: venv, starter printer.json, self-test |
@@ -252,10 +265,15 @@ actually look at them.
      - Look at `face_preview`. It shows the face at print scale, with red lines where two features would merge.
      - If `layout.problems` is not empty, the face is too small for this nozzle. That is a question-round topic, not something to ship: offer a 0.2 nozzle, a bigger size, an inlaid colour face or fewer features (`references/questions.md`).
 4. **Model.**
-   - Copy the matching template (`model_template.py` for round figures,
-     `box_template.py` for box-like ones) plus `scripts/shapes.py` into
-     `models/<name>/`.
+   - First copy the matching template (`model_template.py` for round
+     figures, `box_template.py` for box-like ones) plus `scripts/shapes.py`
+     into `models/<name>/`, then edit the copy: the file survives a
+     compacted conversation.
    - Build every part from the recipes table above.
+   - Make the colour parts mutually exclusive: subtract an inlay from its
+     host, and the host from an attachment such as a bow. Overlapping
+     colours leave the choice to the slicer, add colour changes and mislead
+     `ray_colors`. The `mono` part stays the fused whole.
    - Build at the reference's scale; scale to the final height at the end
      with `scaled()`.
    - Export with `export_parts` (mono STL + STEP, `parts/<colour>.stl`).
@@ -268,11 +286,18 @@ actually look at them.
    - `check_model.py`: watertight, 1 body, fits; look at `preview.png`.
    - **`compare_views.py` must PASS**: IoU ≥ 0.92 and aspect within 8% on
      every gated view.
+     - The limits are fixed: `--min-iou` and `--max-aspect` only go
+       stricter, and `--info` takes only views whose camera angle the
+       picture leaves open, such as three-quarter.
      - On FAIL, read which height bands are too wide or narrow, fix the
        numbers and rebuild.
      - If the picture differs where the user approved a change (a removed
        ribbon, a chamfer), say so with the number.
      - Look at `views_check.png`.
+     - `make_3mf.py` reads the verdict, `views_check.json`. It builds no
+       project from parts that failed or changed since. If the user has seen
+       `views_check.png` and accepts the difference, pass their words with
+       `--accept-views`. Never accept on their behalf.
    - `overhang_spots.py` for anything red or orange that is not intended.
    - `render_parts.py --reference` and `--closeup`: compare looks, then
      check banding, lumps and feature edges.
@@ -317,6 +342,10 @@ actually look at them.
   - Measure both views.
   - Use `rounded_box` and `lobe`.
   - Gate with `compare_views`.
+- **A picture sent through a messenger is recompressed.** Its noise used to
+  add rows above a white top, so the right model failed the gate: 0.88
+  instead of 0.95. The scripts now ignore that noise. If `masks.png` still
+  shows specks round the object, raise `--threshold`.
 - **Views out of order or mirrored.** Rendering `front,three-quarter,side,back`
   under a sheet ordered `front,side,back,three-quarter` makes every
   comparison meaningless. A sheet whose side view faces right shows `left`,
@@ -370,6 +399,8 @@ A model is done when all of these hold:
   Overhang areas are explained.
 - [ ] `compare_views.py` RESULT PASS with the views named in the sheet's
   order. Any failing band is explained by a change the user approved.
+- [ ] `make_3mf.py` built the project without NOT READY, or with
+  `--accept-views` quoting the user.
 - [ ] You have looked at `views_check.png` and the comparison render with
   your image tool: the proportions match view by view, and every deviation
   was approved.
@@ -408,7 +439,7 @@ copy only the files a skill names; this is every file:
 - `scripts/shapes.py`, `scripts/measure_reference.py`,
   `scripts/compare_views.py`, `scripts/check_model.py`,
   `scripts/overhang_spots.py`, `scripts/render_parts.py`,
-  `scripts/ray_colors.py`, `scripts/cleanmesh.py`
+  `scripts/ray_colors.py`, `scripts/cleanmesh.py`, `scripts/quiet_vtk.py`
 - `scripts/slice.py`, `scripts/gcode_view.py`, `scripts/make_3mf.py`,
   `scripts/moonraker.py`, `scripts/video_frames.py`,
   `scripts/frames_windows.ps1`

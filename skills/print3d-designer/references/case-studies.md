@@ -238,6 +238,28 @@ was no rule at all for gaps between features.
 With the same numbers: the face fails at 25 mm on a 0.4 nozzle, and passes
 on a 0.2 nozzle or at 40 mm.
 
+## 10. The gift box by Hermes again, with the template in hand
+
+The user asked Hermes (skill 1.1) for the box without its ribbons. Hermes
+read `box_template.py` and confirmed that the user's picture was the
+template's own. The job ran in a Telegram chat already full of other
+topics, and six minutes in Hermes compacted the conversation: the skill, its
+references and the template became one-line stubs. It then wrote the model
+from memory: a hard cube 22 × 21 × 27 mm with two upright slabs for a bow.
+`compare_views` failed it (front 0.82, back 0.81) even at `--min-iou 0.40`,
+and the user got "3MF checked, no errors".
+
+| Failure | Cause | Fix |
+|---|---|---|
+| Model written from memory | the template lived only in the conversation | rule 5: copy the template into the model folder first and edit the copy; a fresh conversation per model; reload the skill after a compaction |
+| A failed gate shipped | the limits were options; nothing downstream read the result | fixed limits, front/side/left/back always gated; `make_3mf.py` builds nothing from failed or changed parts unless the user accepts |
+| The template itself failed on the user's copy: 0.88 instead of 0.95 | the picture came through Telegram; JPEG noise above the white bow added 9% to the height | `--threshold` 20 and dropped specks: 0.95 on both copies, the cube still fails (0.76–0.82) |
+| `measure_reference` found 8 views instead of 4 | views were split on the red colour, and the white ribbon cut each box in two | views split on the silhouette |
+| Each render printed ~5 KB of EGL/VTK warnings into the agent's context | headless OpenGL chatter | `quiet_vtk.py` |
+
+Lesson: a gate the agent can loosen, or whose result nothing reads, is only
+advice. Put the verdict where the deliverable is built.
+
 ## Patterns worth repeating
 
 1. Ask before deviating from the reference, with options and a
