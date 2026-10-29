@@ -4,7 +4,7 @@ description: Design, verify and slice 3D-printable models in code (build123d), i
 compatibility: Python 3.11-3.14; scripts/setup.py installs scripts/requirements.txt (build123d, trimesh, pyvista/VTK, scipy, matplotlib, pillow) into ~/.print3d/venv. Optional - a Bambu Studio-family slicer with its CLI, ffmpeg, a Moonraker printer on the network.
 license: MIT
 metadata:
-  version: 1.2.0
+  version: 1.3.0
   author: gjaloyan (designs and print testing), with Claude
   hermes:
     short_description: Design, check and slice 3D-printable models.
